@@ -8,17 +8,22 @@ from tkinter import simpledialog, messagebox, filedialog
 DATA_DIR = "fat_data"
 MAX_BLOCK_SIZE = 20
 
+
 def asegurar_carpetas():
     os.makedirs(DATA_DIR, exist_ok=True)
+
 
 def fecha_actual():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+
 def hash_contraseña(pwd):
     return str(sum(ord(c) for c in pwd))
 
+
 def archivo_usuarios():
     return os.path.join(DATA_DIR, "usuarios.json")
+
 
 def cargar_usuarios():
     asegurar_carpetas()
@@ -28,9 +33,11 @@ def cargar_usuarios():
     with open(archivo_usuarios(), 'r', encoding='utf-8') as f:
         return json.load(f)
 
+
 def guardar_usuarios(usuarios):
     with open(archivo_usuarios(), 'w', encoding='utf-8') as f:
         json.dump(usuarios, f, indent=2)
+
 
 def registrar_usuario(usuario, contraseña):
     usuarios = cargar_usuarios()
@@ -45,6 +52,7 @@ def registrar_usuario(usuario, contraseña):
         json.dump([], f)
     return True
 
+
 def iniciar_sesion(usuario, contraseña):
     usuarios = cargar_usuarios()
     for u in usuarios:
@@ -52,36 +60,42 @@ def iniciar_sesion(usuario, contraseña):
             return True
     return False
 
+
 def ruta_fat(usuario):
     return os.path.join(DATA_DIR, usuario, 'tabla_fat.json')
 
+
 def ruta_bloques(usuario):
     return os.path.join(DATA_DIR, usuario, 'bloques')
+
 
 def cargar_fat(usuario):
     with open(ruta_fat(usuario), 'r', encoding='utf-8') as f:
         return json.load(f)
 
+
 def guardar_fat(usuario, fat):
     with open(ruta_fat(usuario), 'w', encoding='utf-8') as f:
         json.dump(fat, f, indent=2)
+
 
 def crear_bloques(usuario, contenido):
     carpeta = ruta_bloques(usuario)
     os.makedirs(carpeta, exist_ok=True)
     bloques = []
     for i in range(0, len(contenido), MAX_BLOCK_SIZE):
-        parte = contenido[i:i+MAX_BLOCK_SIZE]
+        parte = contenido[i:i + MAX_BLOCK_SIZE]
         id_bloque = str(uuid.uuid4()) + '.json'
         ruta = os.path.join(carpeta, id_bloque)
         bloques.append((ruta, parte))
     for i, (ruta, parte) in enumerate(bloques):
-        siguiente = os.path.basename(bloques[i+1][0]) if i < len(bloques)-1 else None
-        fin = (i == len(bloques)-1)
+        siguiente = os.path.basename(bloques[i + 1][0]) if i < len(bloques) - 1 else None
+        fin = (i == len(bloques) - 1)
         datos = {"datos": parte, "siguiente_archivo": siguiente, "eof": fin}
         with open(ruta, 'w', encoding='utf-8') as f:
             json.dump(datos, f, indent=2)
     return os.path.basename(bloques[0][0]) if bloques else None
+
 
 def leer_bloques(usuario, inicio):
     contenido = ""
@@ -95,6 +109,7 @@ def leer_bloques(usuario, inicio):
             break
         actual = os.path.join(carpeta, datos['siguiente_archivo'])
     return contenido
+
 
 def eliminar_bloques(usuario, inicio):
     carpeta = ruta_bloques(usuario)
@@ -110,6 +125,7 @@ def eliminar_bloques(usuario, inicio):
         if not siguiente:
             break
         actual = os.path.join(carpeta, siguiente)
+
 
 class AplicacionFAT:
     def __init__(self, root):
@@ -162,7 +178,8 @@ class AplicacionFAT:
     def menu_principal(self):
         self.limpiar_ventana()
         self.root.configure(bg="black")
-        tk.Label(self.root, text=f"Usuario activo: {self.usuario}", font=('Arial', 14), bg="black", fg="white").pack(pady=5)
+        tk.Label(self.root, text=f"Usuario activo: {self.usuario}", font=('Arial', 14), bg="black", fg="white").pack(
+            pady=5)
         marco_izq = tk.Frame(self.root, width=250, bg="black")
         marco_izq.pack(side=tk.LEFT, fill=tk.Y, padx=8, pady=8)
         botones = [
@@ -174,10 +191,13 @@ class AplicacionFAT:
             ("Modificar archivo", self.modificar_archivo, "#555"),
             ("Eliminar archivo", self.eliminar_archivo, "#880000"),
             ("Recuperar archivo", self.recuperar_archivo, "#006600"),
+            ("Asignar permisos", self.asignar_permisos, "#222"),
             ("Cerrar sesión", self.cerrar_sesion, "#222")
         ]
         for t, c, color in botones:
-            tk.Button(marco_izq, text=t, width=25, command=c, bg=color, fg="white", activebackground="#222", activeforeground="white", relief="flat", font=('Arial', 10, 'bold')).pack(pady=4)
+            tk.Button(marco_izq, text=t, width=25, command=c, bg=color, fg="white",
+                      activebackground="#222", activeforeground="white", relief="flat",
+                      font=('Arial', 10, 'bold')).pack(pady=4)
         marco_der = tk.Frame(self.root, bg="black")
         marco_der.pack(side=tk.RIGHT, expand=True, fill=tk.BOTH)
         self.texto = tk.Text(marco_der, bg="#111", fg="white", insertbackground="white", relief="flat")
@@ -192,6 +212,32 @@ class AplicacionFAT:
     def cerrar_sesion(self):
         self.usuario = None
         self.inicio_sesion()
+
+    # 🔸 CORRECCIÓN: Verificar permisos correctamente (si existe y está en False, denegar)
+    def verificar_permiso(self, archivo, accion):
+        # Si el archivo no tiene dueño o permisos, se asignan por compatibilidad
+        if 'owner' not in archivo:
+            archivo['owner'] = self.usuario
+        if 'permisos' not in archivo:
+            archivo['permisos'] = {}
+
+        # Si es el dueño, siempre puede hacer todo
+        if archivo['owner'] == self.usuario:
+            return True
+
+        # Si no es el dueño, verificar permisos explícitos
+        permisos = archivo.get('permisos', {}).get(self.usuario, {})
+
+        # Si el usuario tiene permisos definidos, verificar el valor explícito
+        if self.usuario in archivo.get('permisos', {}):
+            # Si la acción está definida, retornar su valor (True o False)
+            if accion in permisos:
+                return permisos[accion]
+            # Si la acción no está definida, denegar por defecto
+            return False
+
+        # Si no tiene permisos definidos en absoluto, denegar
+        return False
 
     def listar_archivos(self):
         self.limpiar_panel()
@@ -224,7 +270,9 @@ class AplicacionFAT:
             'cantidad_caracteres': len(contenido),
             'fecha_creacion': fecha_actual(),
             'fecha_modificacion': fecha_actual(),
-            'fecha_eliminacion': None
+            'fecha_eliminacion': None,
+            'owner': self.usuario,
+            'permisos': {}
         }
         fat.append(entrada)
         guardar_fat(self.usuario, fat)
@@ -250,7 +298,9 @@ class AplicacionFAT:
             'cantidad_caracteres': len(contenido),
             'fecha_creacion': fecha_actual(),
             'fecha_modificacion': fecha_actual(),
-            'fecha_eliminacion': None
+            'fecha_eliminacion': None,
+            'owner': self.usuario,
+            'permisos': {}
         }
         fat.append(entrada)
         guardar_fat(self.usuario, fat)
@@ -279,6 +329,16 @@ class AplicacionFAT:
         if not entrada:
             messagebox.showerror("Error", "Archivo no encontrado o en papelera.")
             return
+        # Compatibilidad: agregar owner y permisos si no existen
+        if 'owner' not in entrada:
+            entrada['owner'] = self.usuario
+        if 'permisos' not in entrada:
+            entrada['permisos'] = {}
+
+        if not self.verificar_permiso(entrada, 'escritura'):
+            messagebox.showerror("Acceso denegado", "No tienes permiso para modificar este archivo.")
+            return
+
         viejo = leer_bloques(self.usuario, entrada['ruta_datos'])
         nuevo = simpledialog.askstring("Editar", "Nuevo contenido:", initialvalue=viejo, parent=self.root)
         if nuevo is None:
@@ -299,6 +359,15 @@ class AplicacionFAT:
         fat = cargar_fat(self.usuario)
         for e in fat:
             if e['nombre'] == nombre and not e.get('papelera'):
+                # Compatibilidad: agregar owner y permisos si no existen
+                if 'owner' not in e:
+                    e['owner'] = self.usuario
+                if 'permisos' not in e:
+                    e['permisos'] = {}
+
+                if not self.verificar_permiso(e, 'eliminar'):
+                    messagebox.showerror("Acceso denegado", "No tienes permiso para eliminar este archivo.")
+                    return
                 e['papelera'] = True
                 e['fecha_eliminacion'] = fecha_actual()
                 guardar_fat(self.usuario, fat)
@@ -325,6 +394,12 @@ class AplicacionFAT:
         fat = cargar_fat(self.usuario)
         for e in fat:
             if e['nombre'] == nombre and e.get('papelera'):
+                # Compatibilidad: si no tiene dueño, se asigna el actual
+                if 'owner' not in e:
+                    e['owner'] = self.usuario
+                if e['owner'] != self.usuario:
+                    messagebox.showerror("Acceso denegado", "Solo el propietario puede recuperar el archivo.")
+                    return
                 e['papelera'] = False
                 e['fecha_eliminacion'] = None
                 guardar_fat(self.usuario, fat)
@@ -332,11 +407,48 @@ class AplicacionFAT:
                 return
         messagebox.showerror("Error", "Archivo no encontrado en la papelera.")
 
+    def asignar_permisos(self):
+        self.limpiar_panel()
+        nombre = simpledialog.askstring("Permisos", "Nombre del archivo al que desea asignar permisos:",
+                                        parent=self.root)
+        if not nombre:
+            return
+        fat = cargar_fat(self.usuario)
+        entrada = next((f for f in fat if f['nombre'] == nombre), None)
+        if not entrada:
+            messagebox.showerror("Error", "Archivo no encontrado.")
+            return
+        # Compatibilidad: crear campos faltantes
+        if 'owner' not in entrada:
+            entrada['owner'] = self.usuario
+        if 'permisos' not in entrada:
+            entrada['permisos'] = {}
+
+        if entrada['owner'] != self.usuario:
+            messagebox.showerror("Acceso denegado", "Solo el propietario puede asignar permisos.")
+            return
+        usuario_permiso = simpledialog.askstring("Permisos", "Ingrese el usuario al que desea asignar permisos:",
+                                                 parent=self.root)
+        if not usuario_permiso:
+            return
+        lectura = messagebox.askyesno("Permisos", "¿Conceder permiso de lectura?")
+        escritura = messagebox.askyesno("Permisos", "¿Conceder permiso de escritura?")
+        eliminar = messagebox.askyesno("Permisos", "¿Conceder permiso de eliminación?")
+        entrada['permisos'][usuario_permiso] = {
+            'lectura': lectura,
+            'escritura': escritura,
+            'eliminar': eliminar
+        }
+        guardar_fat(self.usuario, fat)
+        self.registro(f"Permisos actualizados para '{usuario_permiso}' en '{nombre}'.")
+
+
 def main():
     asegurar_carpetas()
     root = tk.Tk()
     app = AplicacionFAT(root)
     root.mainloop()
+
 
 if __name__ == '__main__':
     main()
